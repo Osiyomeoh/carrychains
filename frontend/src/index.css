@@ -1,0 +1,90 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+code {
+  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
+    monospace;
+}
+/* Add this to your index.css or create a separate file for OnchainKit styles */
+
+/* Make OnchainKit Wallet components visible */
+.ock_wallet {
+  position: relative;
+}
+
+.ock_wallet button {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 0.5rem !important;
+}
+
+/* Ensure the dropdown is visible */
+.ock_wallet_dropdown {
+  position: absolute !important;
+  right: 0 !important;
+  top: 100% !important;
+  margin-top: 0.5rem !important;
+  background: white !important;
+  border: 1px solid #e5e7eb !important;
+  border-radius: 0.5rem !important;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1) !important;
+  z-index: 50 !important;
+  min-width: 200px !important;
+}
+
+/* Style the connect button */
+.ock_connect_wallet button {
+  background-color: #4f46e5 !important;
+  color: white !important;
+  padding: 0.5rem 1rem !important;
+  border-radius: 0.375rem !important;
+  font-size: 0.875rem !important;
+  font-weight: 500 !important;
+  transition: background-color 0.15s ease !important;
+}
+
+.ock_connect_wallet button:hover {
+  background-color: #4338ca !important;
+}
+
+/* Style the identity components */
+.ock_identity {
+  display: flex !important;
+  align-items: center !important;
+  gap: 0.5rem !important;
+}
+
+.ock_avatar {
+  width: 1.5rem !important;
+  height: 1.5rem !important;
+  border-radius: 50% !important;
+}
+
+.ock_name {
+  font-size: 0.875rem !important;
+  font-weight: 500 !important;
+}
+
+/* Fix disconnect button styling */
+.ock_wallet_dropdown_disconnect {
+  width: 100% !important;
+  padding: 0.5rem 1rem !important;
+  text-align: center !important;
+  color: #dc2626 !important;
+  transition: background-color 0.15s ease !important;
+}
+
+.ock_wallet_dropdown_disconnect:hover {
+  background-color: #fef2f2 !important;
+}
