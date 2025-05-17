@@ -3,7 +3,7 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { WagmiConfig } from 'wagmi';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-
+import { AIProvider } from './contexts/AIContext';
 // Import your wagmi config
 import { wagmiConfig } from './wagmi';
 
@@ -33,6 +33,7 @@ function App() {
         <Router>
           <Web3ContextProvider>
             <AppDataProvider>
+              <AIProvider>
               <Routes>
                 {/* Landing page as the root route */}
                 <Route path="/" element={<LandingPage />} />
@@ -50,6 +51,7 @@ function App() {
                   <Route path="/profile/:address" element={<ProfilePage />} />
                 </Route>
               </Routes>
+              </AIProvider>
             </AppDataProvider>
           </Web3ContextProvider>
         </Router>

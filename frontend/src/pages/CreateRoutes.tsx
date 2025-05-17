@@ -2,12 +2,28 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useWeb3 } from '../contexts/Web3Context';
 import { useAppData } from '../contexts/AppDataContext';
-import { ConnectButton } from '@rainbow-me/rainbowkit';
+import { 
+  Calendar, 
+  MapPin, 
+  DollarSign, 
+  Package, 
+  AlertCircle, 
+  Check, 
+  Info,
+  Loader,
+  Wallet
+} from 'lucide-react';
+import BaseNetworkChecker from '../components/BaseNetworkChecker';
+import CustomWalletButton from '../components/CustomWalletButton';
+
+type NetworkType = 'mainnet' | 'sepolia';
+const NETWORK_TYPE: NetworkType = 'sepolia';
+
+const isMainnet = (network: NetworkType): network is 'mainnet' => network === 'mainnet';
 
 const CreateRoutePage: React.FC = () => {
   const navigate = useNavigate();
-  const { account, connectWallet, reconnectWallet, signer, provider, isConnecting: isWalletConnecting } = useWeb3();
-
+  const { account, connectWallet, signer, provider, chainId, isConnecting: isWalletConnecting } = useWeb3();
   const { createRoute, isLoading, error: contextError } = useAppData();
 
   const [formData, setFormData] = useState({
@@ -22,21 +38,20 @@ const CreateRoutePage: React.FC = () => {
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [success, setSuccess] = useState(false);
   const [error, setLocalError] = useState<string | null>(null);
-  const [isConnecting, setIsConnecting] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isOnCorrectNetwork, setIsOnCorrectNetwork] = useState(false);
 
-  // Check wallet connection status
+  // Check wallet connection and network status
   useEffect(() => {
-    // Log connection status
-    console.log('Wallet connection status:');
-    console.log('- Account:', account);
-    console.log('- Provider:', !!provider);
-    console.log('- Signer:', !!signer);
+    // Check if we're on the correct network
+    const targetChainId = isMainnet(NETWORK_TYPE) ? 8453 : 84532;
+    setIsOnCorrectNetwork(chainId === targetChainId);
     
     // Clear error when account is connected
     if (account) {
       setLocalError(null);
     }
-  }, [account, provider, signer]);
+  }, [account, chainId]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -53,7 +68,6 @@ const CreateRoutePage: React.FC = () => {
       });
     }
   };
-  //full
 
   const validateForm = () => {
     const errors: Record<string, string> = {};
@@ -101,117 +115,41 @@ const CreateRoutePage: React.FC = () => {
     return Object.keys(errors).length === 0;
   };
 
-  // Handle wallet connection
-  const handleConnectWallet = async () => {
-    setIsConnecting(true);
-    setLocalError(null);
-    
-    try {
-      // First, check if the wallet is already connected with working signer
-      if (account && signer && provider) {
-        try {
-          // Verify signer works by getting the address
-          const signerAddress = await signer.getAddress();
-          console.log("Verified existing wallet connection:", signerAddress);
-          
-          // If we get here, the wallet is already connected and working
-          console.log("Wallet is already properly connected");
-          return;
-        } catch (verifyErr) {
-          console.error("Existing wallet connection is broken:", verifyErr);
-          // Continue to reconnection
-        }
-      }
-      
-      // Either not connected or connection is broken
-      console.log("Connecting/reconnecting wallet...");
-      
-      // Try reconnection if we have an account but something else is wrong
-      if (account) {
-        console.log("Have account but connection needs refresh, reconnecting...");
-        await reconnectWallet();
-      } else {
-        console.log("No account detected, connecting fresh...");
-        await connectWallet();
-      }
-      
-      // Verify the connection worked by checking for account, signer, and provider
-      if (!account || !signer || !provider) {
-        console.error("Wallet connection failed - still missing required components");
-        throw new Error("Failed to establish a complete wallet connection");
-      }
-      
-      // Verify signer works
-      const newSignerAddress = await signer.getAddress();
-      console.log("New connection verified with address:", newSignerAddress);
-    } catch (err: any) {
-      console.error("Wallet connection error:", err);
-      setLocalError(`Failed to connect wallet: ${err.message}`);
-    } finally {
-      setIsConnecting(false);
-    }
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    console.log("Create Route button clicked");
-    
-    // Check wallet connection status first
-    if (!account || !signer || !provider) {
-      console.log("Incomplete wallet connection detected, reconnecting wallet first");
-      setLocalError("Please connect your wallet to create a route.");
-      await handleConnectWallet();
-      
-      // Verify connection was successful
-      if (!account || !signer || !provider) {
-        setLocalError("Unable to connect wallet properly. Please try again or use a different wallet.");
-        return;
-      }
-    } else {
-      // Wallet is already connected, but let's verify the signer works
-      try {
-        console.log("Wallet already connected:", account);
-        
-        // Verify signer works by getting the address
-        const signerAddress = await signer.getAddress();
-        console.log("Verified signer address:", signerAddress);
-        
-        // Compare with account to make sure they match
-        if (signerAddress.toLowerCase() !== account.toLowerCase()) {
-          console.warn("Signer address mismatch, attempting to fix...", {
-            signerAddress,
-            account
-          });
-          
-          // Don't throw an error yet, just try to reconnect
-          await reconnectWallet();
-          
-          // Check if the reconnection fixed the issue
-          const newSignerAddress = await signer.getAddress();
-          if (newSignerAddress.toLowerCase() !== account.toLowerCase()) {
-            throw new Error("Wallet address mismatch even after reconnection");
-          }
-        }
-      } catch (verifyErr) {
-        console.error("Error verifying signer:", verifyErr);
-        setLocalError("Wallet connection verification failed. Please reconnect your wallet.");
-        await reconnectWallet();
-        return;
-      }
-    }
-    
-    // Proceed with form validation only if we have a valid wallet connection
-    if (!validateForm()) {
-      console.log("Form validation failed");
+    // Prevent multiple submissions
+    if (isSubmitting || isLoading) {
       return;
     }
     
-    // Clear error states
+    // Reset error states
     setLocalError(null);
+    setIsSubmitting(true);
     
     try {
-      console.log("Form data:", formData);
+      // Check wallet connection
+      if (!account || !signer || !provider) {
+        setLocalError("Please connect your wallet to create a route.");
+        await connectWallet();
+        
+        if (!account || !signer || !provider) {
+          throw new Error("Wallet connection required");
+        }
+      }
+      
+      // Check if we're on the correct network
+      if (!isOnCorrectNetwork) {
+        setLocalError("Please switch to Base network to create a route");
+        setIsSubmitting(false);
+        return;
+      }
+      
+      // Validate form
+      if (!validateForm()) {
+        setIsSubmitting(false);
+        return;
+      }
       
       // Convert form data to the format expected by the contract
       const departureDate = new Date(formData.departureTime);
@@ -227,15 +165,6 @@ const CreateRoutePage: React.FC = () => {
       // Convert price to smallest unit for USDC (6 decimals)
       const pricePerKgInSmallestUnit = Math.floor(Number(formData.pricePerKg) * 1000000);
       
-      console.log("Submitting transaction with parameters:", {
-        departureLocation: formData.departureLocation,
-        destinationLocation: formData.destinationLocation,
-        departureTime: departureTimestamp,
-        arrivalTime: arrivalTimestamp,
-        availableSpace: availableSpaceInGrams,
-        pricePerKg: pricePerKgInSmallestUnit
-      });
-      
       // Call the createRoute function
       const success = await createRoute(
         formData.departureLocation,
@@ -247,37 +176,41 @@ const CreateRoutePage: React.FC = () => {
       );
       
       if (success) {
-        console.log("Route created successfully!");
         setSuccess(true);
         setTimeout(() => {
           navigate('/my-routes');
         }, 2000);
       } else {
-        console.log("Route creation function returned false");
         throw new Error("Failed to create route. Please try again.");
       }
     } catch (err: any) {
-      console.error("Error creating route:", err);
       setSuccess(false);
       
-      // Check for specific error types
-      if (err.code === 'UNSUPPORTED_OPERATION') {
-        setLocalError("Wallet connection issue. Please disconnect and reconnect your wallet.");
-      } else if (err.code === 'ACTION_REJECTED') {
+      // Handle specific error types
+      if (err.code === 4001 || err.code === 'ACTION_REJECTED') {
         setLocalError("Transaction was rejected in your wallet. Please try again and approve the transaction.");
+      } else if (err.message?.includes("user rejected") || err.message?.includes("User denied")) {
+        setLocalError("Transaction was rejected in your wallet. Please try again and approve the transaction.");
+      } else if (err.message?.includes("insufficient funds")) {
+        setLocalError("Insufficient funds for this transaction.");
       } else {
         setLocalError(`Failed to create route: ${err.message || "Unknown error"}`);
       }
+    } finally {
+      setIsSubmitting(false);
     }
   };
+
   // Show wallet connection UI if not connected
   if (!account) {
     return (
-      <div className="max-w-3xl mx-auto bg-white rounded-xl shadow-md overflow-hidden p-8 text-center">
-        <h1 className="text-2xl font-bold text-gray-800 mb-6">Create a New Route</h1>
-        <p className="text-gray-600 mb-8">Connect your wallet to create a new travel route and offer your luggage space to others.</p>
-        <div className="flex justify-center">
-          <ConnectButton label="Connect Wallet to Continue" />
+      <div className="max-w-3xl mx-auto">
+        <div className="bg-gray-800 rounded-xl shadow-lg overflow-hidden p-8 text-center border border-gray-700">
+          <h1 className="text-2xl font-bold text-white mb-6">Create a New Route</h1>
+          <p className="text-gray-300 mb-8">Connect your wallet to create a new travel route and offer your luggage space to others.</p>
+          <div className="flex justify-center">
+            <CustomWalletButton className="px-6 py-3 text-lg" />
+          </div>
         </div>
       </div>
     );
@@ -287,215 +220,227 @@ const CreateRoutePage: React.FC = () => {
   const displayError = error || contextError;
 
   return (
-    <div className="max-w-3xl mx-auto">
-      <h1 className="text-2xl font-bold text-gray-800 mb-6">Create a New Route</h1>
-      
-      {success ? (
-        <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded-md mb-6 flex items-center">
-          <svg className="w-5 h-5 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-          <div>
-            <span className="font-semibold">Success!</span>
-            <span className="ml-2">Your route has been created. Redirecting to My Routes...</span>
-          </div>
-        </div>
-      ) : null}
-      
-      {displayError ? (
-        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-md mb-6 flex items-center">
-          <svg className="w-5 h-5 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-          <span>{displayError}</span>
-        </div>
-      ) : null}
-      
-      <div className="bg-blue-100 border border-blue-400 text-blue-700 px-4 py-3 rounded-md mb-6">
-        <p className="flex items-center">
-          <svg className="w-5 h-5 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-          Connected as: <span className="font-mono ml-1">{account.substring(0, 6)}...{account.substring(account.length - 4)}</span>
-        </p>
-      </div>
-      
-      <form onSubmit={handleSubmit} className="bg-white rounded-xl shadow-md overflow-hidden p-6">
-        {/* Departure Location */}
-        <div className="mb-6">
-          <label className="block text-gray-700 font-semibold mb-2 flex items-center">
-            <svg className="w-5 h-5 mr-2 text-indigo-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-            </svg>
-            Departure Location
-          </label>
-          <input
-            type="text"
-            name="departureLocation"
-            value={formData.departureLocation}
-            onChange={handleChange}
-            placeholder="City, Country (e.g. Lagos, Nigeria)"
-            className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
-              formErrors.departureLocation ? 'border-red-500' : 'border-gray-300'
-            }`}
-          />
-          {formErrors.departureLocation && (
-            <p className="text-red-500 text-sm mt-1">{formErrors.departureLocation}</p>
-          )}
-        </div>
+    <BaseNetworkChecker networkType={NETWORK_TYPE}>
+      <div className="max-w-3xl mx-auto">
+        <h1 className="text-2xl md:text-3xl font-bold mb-6">
+          Create a <span className="bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400">New Route</span>
+        </h1>
         
-        {/* Destination Location */}
-        <div className="mb-6">
-          <label className="block text-gray-700 font-semibold mb-2 flex items-center">
-            <svg className="w-5 h-5 mr-2 text-indigo-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-            </svg>
-            Destination Location
-          </label>
-          <input
-            type="text"
-            name="destinationLocation"
-            value={formData.destinationLocation}
-            onChange={handleChange}
-            placeholder="City, Country (e.g. Accra, Ghana)"
-            className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
-              formErrors.destinationLocation ? 'border-red-500' : 'border-gray-300'
-            }`}
-          />
-          {formErrors.destinationLocation && (
-            <p className="text-red-500 text-sm mt-1">{formErrors.destinationLocation}</p>
-          )}
-        </div>
+        {success && (
+          <div className="bg-green-900/30 border border-green-600 text-green-200 px-4 py-3 rounded-lg mb-6 flex items-center">
+            <Check className="w-5 h-5 mr-2 text-green-400" />
+            <div>
+              <span className="font-semibold">Success!</span>
+              <span className="ml-2">Your route has been created. Redirecting to My Routes...</span>
+            </div>
+          </div>
+        )}
         
-        {/* Time Fields */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-          {/* Departure Time */}
-          <div>
-            <label className="block text-gray-700 font-semibold mb-2 flex items-center">
-              <svg className="w-5 h-5 mr-2 text-indigo-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-              </svg>
-              Departure Time
-            </label>
-            <input
-              type="datetime-local"
-              name="departureTime"
-              value={formData.departureTime}
-              onChange={handleChange}
-              className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
-                formErrors.departureTime ? 'border-red-500' : 'border-gray-300'
-              }`}
-            />
-            {formErrors.departureTime && (
-              <p className="text-red-500 text-sm mt-1">{formErrors.departureTime}</p>
-            )}
+        {displayError && (
+          <div className="bg-red-900/30 border border-red-600 text-red-200 px-4 py-3 rounded-lg mb-6 flex items-center">
+            <AlertCircle className="w-5 h-5 mr-2 text-red-400" />
+            <span>{displayError}</span>
           </div>
-          
-          {/* Arrival Time */}
-          <div>
-            <label className="block text-gray-700 font-semibold mb-2 flex items-center">
-              <svg className="w-5 h-5 mr-2 text-indigo-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-              </svg>
-              Arrival Time
-            </label>
-            <input
-              type="datetime-local"
-              name="arrivalTime"
-              value={formData.arrivalTime}
-              onChange={handleChange}
-              className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
-                formErrors.arrivalTime ? 'border-red-500' : 'border-gray-300'
-              }`}
-            />
-            {formErrors.arrivalTime && (
-              <p className="text-red-500 text-sm mt-1">{formErrors.arrivalTime}</p>
-            )}
-          </div>
-        </div>
+        )}
         
-        {/* Weight and Price Fields */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-          {/* Available Space */}
+        <div className="bg-indigo-900/20 border border-indigo-600/40 text-white px-4 py-3 rounded-lg mb-6 flex items-center">
+          <Info className="w-5 h-5 mr-2 text-indigo-400" />
           <div>
-            <label className="block text-gray-700 font-semibold mb-2 flex items-center">
-              <svg className="w-5 h-5 mr-2 text-indigo-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 6l3 1m0 0l-3 9a5.002 5.002 0 006.001 0M6 7l3 9M6 7l6-2m6 2l3-1m-3 1l-3 9a5.002 5.002 0 006.001 0M18 7l3 9m-3-9l-6-2m0-2v2m0 16V5m0 16H9m3 0h3" />
-              </svg>
-              Available Space (kg)
-            </label>
-            <input
-              type="number"
-              name="availableSpace"
-              value={formData.availableSpace}
-              onChange={handleChange}
-              min="0.1"
-              step="0.1"
-              placeholder="10"
-              className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
-                formErrors.availableSpace ? 'border-red-500' : 'border-gray-300'
-              }`}
-            />
-            {formErrors.availableSpace && (
-              <p className="text-red-500 text-sm mt-1">{formErrors.availableSpace}</p>
-            )}
-          </div>
-          
-          {/* Price per kg */}
-          <div>
-            <label className="block text-gray-700 font-semibold mb-2 flex items-center">
-              <svg className="w-5 h-5 mr-2 text-indigo-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              Price per kg (USDC)
-            </label>
-            <input
-              type="number"
-              name="pricePerKg"
-              value={formData.pricePerKg}
-              onChange={handleChange}
-              min="0.1"
-              step="0.1"
-              placeholder="5"
-              className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
-                formErrors.pricePerKg ? 'border-red-500' : 'border-gray-300'
-              }`}
-            />
-            {formErrors.pricePerKg && (
-              <p className="text-red-500 text-sm mt-1">{formErrors.pricePerKg}</p>
-            )}
-          </div>
-        </div>
-        
-        {/* Submit Button */}
-        <div className="flex justify-end">
-          <button
-            type="submit"
-            disabled={isLoading}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-6 rounded-lg transition-colors duration-150 flex items-center"
-          >
-            {isLoading ? (
-              <>
-                <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-                Creating...
-              </>
+            <span className="text-white">Connected as: </span>
+            <span className="font-mono bg-indigo-900/50 px-2 py-1 rounded text-white ml-1">
+              {account.substring(0, 6)}...{account.substring(account.length - 4)}
+            </span>
+            {isOnCorrectNetwork ? (
+              <span className="ml-2 text-xs bg-green-800/50 text-green-300 py-1 px-2 rounded-full border border-green-700">
+                {isMainnet(NETWORK_TYPE) ? 'Base Mainnet' : 'Base Sepolia'}
+              </span>
             ) : (
-              <>
-                <svg className="w-5 h-5 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
-                </svg>
-                Create Route
-              </>
+              <span className="ml-2 text-xs bg-red-800/50 text-red-300 py-1 px-2 rounded-full border border-red-700">Wrong Network</span>
             )}
-          </button>
+          </div>
         </div>
-      </form>
-    </div>
+        
+        <form 
+          onSubmit={handleSubmit} 
+          className="bg-gray-800 rounded-xl shadow-lg overflow-hidden p-6 border border-gray-700"
+        >
+          {/* Departure Location */}
+          <div className="mb-6">
+            <label className="block text-gray-200 font-semibold mb-2 flex items-center">
+              <MapPin className="w-5 h-5 mr-2 text-indigo-400" />
+              Departure Location
+            </label>
+            <input
+              type="text"
+              name="departureLocation"
+              value={formData.departureLocation}
+              onChange={handleChange}
+              placeholder="City, Country (e.g. Lagos, Nigeria)"
+              className={`w-full px-4 py-3 bg-gray-700 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-white placeholder-gray-400 ${
+                formErrors.departureLocation ? 'border-red-500' : 'border-gray-600'
+              }`}
+            />
+            {formErrors.departureLocation && (
+              <p className="text-red-400 text-sm mt-1">{formErrors.departureLocation}</p>
+            )}
+          </div>
+          
+          {/* Destination Location */}
+          <div className="mb-6">
+            <label className="block text-gray-200 font-semibold mb-2 flex items-center">
+              <MapPin className="w-5 h-5 mr-2 text-green-400" />
+              Destination Location
+            </label>
+            <input
+              type="text"
+              name="destinationLocation"
+              value={formData.destinationLocation}
+              onChange={handleChange}
+              placeholder="City, Country (e.g. Accra, Ghana)"
+              className={`w-full px-4 py-3 bg-gray-700 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-white placeholder-gray-400 ${
+                formErrors.destinationLocation ? 'border-red-500' : 'border-gray-600'
+              }`}
+            />
+            {formErrors.destinationLocation && (
+              <p className="text-red-400 text-sm mt-1">{formErrors.destinationLocation}</p>
+            )}
+          </div>
+          
+          {/* Time Fields */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+            {/* Departure Time */}
+            <div>
+              <label className="block text-gray-200 font-semibold mb-2 flex items-center">
+                <Calendar className="w-5 h-5 mr-2 text-indigo-400" />
+                Departure Time
+              </label>
+              <input
+                type="datetime-local"
+                name="departureTime"
+                value={formData.departureTime}
+                onChange={handleChange}
+                className={`w-full px-4 py-3 bg-gray-700 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-white ${
+                  formErrors.departureTime ? 'border-red-500' : 'border-gray-600'
+                }`}
+              />
+              {formErrors.departureTime && (
+                <p className="text-red-400 text-sm mt-1">{formErrors.departureTime}</p>
+              )}
+            </div>
+            
+            {/* Arrival Time */}
+            <div>
+              <label className="block text-gray-200 font-semibold mb-2 flex items-center">
+                <Calendar className="w-5 h-5 mr-2 text-green-400" />
+                Arrival Time
+              </label>
+              <input
+                type="datetime-local"
+                name="arrivalTime"
+                value={formData.arrivalTime}
+                onChange={handleChange}
+                className={`w-full px-4 py-3 bg-gray-700 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-white ${
+                  formErrors.arrivalTime ? 'border-red-500' : 'border-gray-600'
+                }`}
+              />
+              {formErrors.arrivalTime && (
+                <p className="text-red-400 text-sm mt-1">{formErrors.arrivalTime}</p>
+              )}
+            </div>
+          </div>
+          
+          {/* Weight and Price Fields */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+            {/* Available Space */}
+            <div>
+              <label className="block text-gray-200 font-semibold mb-2 flex items-center">
+                <Package className="w-5 h-5 mr-2 text-indigo-400" />
+                Available Space (kg)
+              </label>
+              <input
+                type="number"
+                name="availableSpace"
+                value={formData.availableSpace}
+                onChange={handleChange}
+                min="0.1"
+                step="0.1"
+                placeholder="10"
+                className={`w-full px-4 py-3 bg-gray-700 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-white placeholder-gray-400 ${
+                  formErrors.availableSpace ? 'border-red-500' : 'border-gray-600'
+                }`}
+              />
+              {formErrors.availableSpace && (
+                <p className="text-red-400 text-sm mt-1">{formErrors.availableSpace}</p>
+              )}
+            </div>
+            
+            {/* Price per kg */}
+            <div>
+              <label className="block text-gray-200 font-semibold mb-2 flex items-center">
+                <DollarSign className="w-5 h-5 mr-2 text-indigo-400" />
+                Price per kg (USDC)
+              </label>
+              <input
+                type="number"
+                name="pricePerKg"
+                value={formData.pricePerKg}
+                onChange={handleChange}
+                min="0.1"
+                step="0.1"
+                placeholder="5"
+                className={`w-full px-4 py-3 bg-gray-700 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-white placeholder-gray-400 ${
+                  formErrors.pricePerKg ? 'border-red-500' : 'border-gray-600'
+                }`}
+              />
+              {formErrors.pricePerKg && (
+                <p className="text-red-400 text-sm mt-1">{formErrors.pricePerKg}</p>
+              )}
+            </div>
+          </div>
+          
+          {/* Submit Button */}
+          <div className="flex justify-end">
+            <button
+              type="submit"
+              disabled={isLoading || isSubmitting || !isOnCorrectNetwork}
+              className={`
+                bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 text-white font-bold py-3 px-8 rounded-lg 
+                transition-shadow duration-150 flex items-center shadow-lg shadow-purple-500/20
+                ${(isLoading || isSubmitting || !isOnCorrectNetwork) ? 'opacity-70 cursor-not-allowed' : 'hover:shadow-xl'}
+              `}
+            >
+              {isLoading || isSubmitting ? (
+                <>
+                  <Loader className="w-5 h-5 mr-2 animate-spin" />
+                  {isSubmitting ? "Processing..." : "Creating..."}
+                </>
+              ) : !isOnCorrectNetwork ? (
+                <>
+                  <AlertCircle className="w-5 h-5 mr-2" />
+                  Switch Network First
+                </>
+              ) : (
+                <>
+                  <Package className="w-5 h-5 mr-2" />
+                  Create Route
+                </>
+              )}
+            </button>
+          </div>
+        </form>
+        
+        {/* Helpful tips section */}
+        <div className="mt-6 bg-gray-800/50 border border-gray-700 rounded-lg p-4 text-sm">
+          <h3 className="font-bold text-white mb-2">Tips for creating a route:</h3>
+          <ul className="list-disc pl-5 space-y-1 text-white">
+            <li>Provide accurate departure and arrival times to help shippers plan accordingly.</li>
+            <li>Set a competitive price per kg to attract more delivery requests.</li>
+            <li>Be realistic about your available space based on your luggage allowance.</li>
+            <li>Once created, you'll receive delivery requests that you can accept or decline.</li>
+          </ul>
+        </div>
+      </div>
+    </BaseNetworkChecker>
   );
 };
 
