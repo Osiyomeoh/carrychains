@@ -1,3 +1,6 @@
+
+
+
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode, useMemo, useRef } from 'react';
 import { useWeb3 } from './Web3Context';
 import { ethers } from 'ethers';
@@ -14,7 +17,8 @@ import ERC20ABI from '../abis/ERC20.json';
 const MARKETPLACE_ADDRESS = process.env.REACT_APP_MARKETPLACE_ADDRESS || '0x001AaBE36BBA3C25796bB9B19AE21950a4e6B87E';
 const VERIFICATION_ADDRESS = process.env.REACT_APP_VERIFICATION_ADDRESS || '0xF6F02d9b305e5353B461223bBFe1FcD1A888DD37';
 const STABLECOIN_ADAPTER_ADDRESS = process.env.REACT_APP_STABLECOIN_ADAPTER_ADDRESS || '0x9AbdC4C1d94BD0a581E22Ca9e05f9DcC74Ca6d2e';
-const USDC_ADDRESS = process.env.REACT_APP_USDC_ADDRESS || '0xa12ee69D5e36A07c25b61331Ae4bcFfA2E5f23A1';
+// Updated USDC contract address for Base Sepolia testnet
+const USDC_ADDRESS = process.env.REACT_APP_USDC_ADDRESS || '0x036CbD53842c5426634e7929541eC2318f3dCF7c';
 
 // Create the context
 const AppDataContext = createContext<AppDataContextType | undefined>(undefined);

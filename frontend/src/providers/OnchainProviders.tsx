@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { OnchainKitProvider } from '@coinbase/onchainkit';
 import { WagmiConfig } from 'wagmi';
 import { ReactNode } from 'react';
-import { useWagmiConfig, baseChain } from '../wagmi';
+import { wagmiConfig, baseChain } from '../wagmi';
 
 // Create a query client
 const queryClient = new QueryClient();
@@ -43,8 +43,6 @@ interface OnchainProvidersProps {
 }
 
 export default function OnchainProviders({ children }: OnchainProvidersProps) {
-  const wagmiConfig = useWagmiConfig();
-  
   return (
     <QueryClientProvider client={queryClient}>
       <WagmiConfig config={wagmiConfig}>
