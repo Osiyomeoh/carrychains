@@ -199,6 +199,7 @@ export const Web3ContextProvider: React.FC<{ children: ReactNode }> = ({ childre
       }
     }
   };
+  
   // Improved reconnect function with full reset
   const reconnectWallet = async () => {
     console.log("Reconnecting wallet...");
