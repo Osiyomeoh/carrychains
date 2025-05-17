@@ -39,7 +39,7 @@ const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
 
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const isLoadingRef = useRef(false); // Track loading state to prevent overlapping calls
+  const isLoadingRef = useRef(false);
 
   // Contract initialization
   const getMarketplaceContract = useCallback((withSigner = false) => {
@@ -262,22 +262,16 @@ const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
 
   // Load all deliveries
   const loadDeliveries = useCallback(async () => {
+    if (isLoadingRef.current) {
+      console.log("loadDeliveries: Already loading, skipping");
+      return;
+    }
+
     try {
+      isLoadingRef.current = true;
       console.log("Starting to load deliveries...");
       const marketplace = getMarketplaceContract();
       console.log("Marketplace contract initialized at:", marketplace.address);
-
-      // Verify contract connection
-      try {
-        const code = await marketplace.provider.getCode(marketplace.address);
-        if (code === '0x') {
-          throw new Error(`No contract found at address ${marketplace.address}`);
-        }
-        console.log("Contract code verified at address:", marketplace.address);
-      } catch (error) {
-        console.error("Error verifying contract:", error);
-        throw new Error(`Failed to verify contract at ${marketplace.address}`);
-      }
 
       let deliveryCount: number = 0;
       try {
@@ -287,20 +281,18 @@ const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
         console.log("Delivery count fetched:", deliveryCount);
       } catch (error) {
         console.error("Error fetching delivery count:", error);
-        console.warn("Falling back to hardcoded limit of 10 deliveries.");
-        deliveryCount = 10;
+        return;
       }
 
       if (!deliveryCount) {
-        console.warn("No deliveries available (deliveryCount is 0)");
+        console.log("No deliveries available");
         setState(prev => ({ ...prev, deliveries: [], myDeliveries: { asShipper: [], asTraveler: [] } }));
         return;
       }
 
-      console.log(`Total deliveries to check: ${deliveryCount}`);
       const deliveries: Delivery[] = [];
       
-      // Process deliveries in batches to avoid overwhelming the RPC
+      // Process deliveries in batches
       const batchSize = 5;
       const batches = Math.ceil(deliveryCount / batchSize);
       
@@ -314,20 +306,9 @@ const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
           batchPromises.push(
             (async (id) => {
               try {
-                console.log(`Fetching delivery ${id}...`);
                 const delivery = await marketplace.deliveries(id);
-                console.log(`Raw delivery data for ID ${id}:`, {
-                  id: delivery.id.toString(),
-                  routeId: delivery.routeId.toString(),
-                  traveler: delivery.traveler,
-                  shipper: delivery.shipper,
-                  status: delivery.status.toString(),
-                  disputed: delivery.disputed
-                });
-                
-                // Check if this is a valid delivery (has a non-zero shipper address)
                 if (delivery.shipper !== ethers.constants.AddressZero) {
-                  const deliveryData: Delivery = {
+                  return {
                     id,
                     routeId: delivery.routeId.toNumber(),
                     traveler: delivery.traveler,
@@ -339,10 +320,7 @@ const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
                     createdAt: delivery.createdAt.toNumber(),
                     disputed: delivery.disputed,
                   };
-                  console.log(`Delivery ${id} found:`, deliveryData);
-                  return deliveryData;
                 }
-                console.log(`Delivery ID ${id} does not exist (zero address)`);
                 return null;
               } catch (error) {
                 console.error(`Error fetching delivery ID ${id}:`, error);
@@ -356,7 +334,6 @@ const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
           const batchResults = await Promise.all(batchPromises);
           const validDeliveries = batchResults.filter(delivery => delivery !== null) as Delivery[];
           deliveries.push(...validDeliveries);
-          console.log(`Batch ${batchIndex + 1} completed. Found ${validDeliveries.length} valid deliveries`);
         } catch (error) {
           console.error(`Error processing batch ${batchIndex + 1}:`, error);
           continue;
@@ -373,14 +350,7 @@ const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
         ),
       } : { asShipper: [], asTraveler: [] };
 
-      console.log(`Successfully loaded ${deliveries.length} deliveries:`, {
-        total: deliveries.length,
-        asShipper: myDeliveries.asShipper.length,
-        asTraveler: myDeliveries.asTraveler.length,
-        account: account || 'none'
-      });
-
-      // Update state with all deliveries and user-specific deliveries
+      console.log(`Successfully loaded ${deliveries.length} deliveries`);
       setState(prev => ({
         ...prev,
         deliveries,
@@ -389,6 +359,8 @@ const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
     } catch (error: any) {
       console.error("Error loading deliveries:", error);
       setError(`Failed to load deliveries: ${error.message || "Unknown error"}`);
+    } finally {
+      isLoadingRef.current = false;
     }
   }, [account, getMarketplaceContract]);
 
@@ -403,29 +375,11 @@ const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
     try {
       console.log(`loadMyDeliveries: Loading for account ${account}`);
       await loadDeliveries();
-
-      const asShipper = state.deliveries.filter(delivery =>
-        delivery.shipper.toLowerCase() === account.toLowerCase()
-      );
-      const asTraveler = state.deliveries.filter(delivery =>
-        delivery.traveler.toLowerCase() === account.toLowerCase()
-      );
-
-      console.log("My deliveries as shipper:", asShipper);
-      console.log("My deliveries as traveler:", asTraveler);
-
-      setState(prev => ({
-        ...prev,
-        myDeliveries: {
-          asShipper,
-          asTraveler,
-        },
-      }));
     } catch (error: any) {
       console.error("Error loading my deliveries:", error);
       setError(`Failed to load your deliveries: ${error.message || "Unknown error"}`);
     }
-  }, [account, state.deliveries, loadDeliveries]);
+  }, [account, loadDeliveries]);
 
   // Load verification
   const loadVerification = useCallback(async (deliveryId: number) => {
@@ -968,132 +922,23 @@ const AppDataProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
     }
   }, [account, signer, getMarketplaceContract, loadUserProfile]);
 
-  // Load initial data
+  // Separate effect for initial data loading
   useEffect(() => {
-    let isMounted = true;
-
+    if (!provider) return;
+    
     const loadInitialData = async () => {
-      if (!provider || !isMounted) {
-        console.log("loadInitialData: Skipped due to missing provider or unmounted");
-        return;
-      }
-
       try {
-        console.log("Loading initial data...");
-        setIsLoading(true);
-        
-        // Load both routes and deliveries in parallel
-        await Promise.all([
-          loadRoutes(),
-          loadDeliveries()
-        ]);
-        
-        console.log("Initial data loaded successfully");
-      } catch (error: any) {
+        await loadDeliveries();
+        if (account) {
+          await loadMyDeliveries();
+        }
+      } catch (error) {
         console.error("Error loading initial data:", error);
-        setError(`Failed to load initial data: ${error.message || "Unknown error"}`);
-      } finally {
-        setIsLoading(false);
       }
     };
 
     loadInitialData();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [provider, loadRoutes, loadDeliveries]);
-
-  // Set up event listeners for deliveries
-  useEffect(() => {
-    if (!provider || !account) return;
-
-    console.log("Setting up delivery event listeners...");
-    const marketplace = getMarketplaceContract();
-
-    // Listen for DeliveryCreated events
-    const deliveryCreatedFilter = marketplace.filters.DeliveryCreated(null, null, null);
-    const deliveryCreatedListener = async (deliveryId: number, routeId: number, shipper: string) => {
-      console.log("DeliveryCreated event received:", { deliveryId, routeId, shipper });
-      await loadDeliveries();
-      await loadMyDeliveries();
-    };
-
-    // Listen for DeliveryStatusChanged events
-    const deliveryStatusFilter = marketplace.filters.DeliveryStatusChanged(null, null);
-    const deliveryStatusListener = async (deliveryId: number, status: number) => {
-      console.log("DeliveryStatusChanged event received:", { deliveryId, status });
-      await loadDeliveries();
-      await loadMyDeliveries();
-    };
-
-    // Listen for DeliveryDisputed events
-    const deliveryDisputedFilter = marketplace.filters.DeliveryDisputed(null);
-    const deliveryDisputedListener = async (deliveryId: number) => {
-      console.log("DeliveryDisputed event received:", { deliveryId });
-      await loadDeliveries();
-      await loadMyDeliveries();
-    };
-
-    // Listen for DeliveryResolved events
-    const deliveryResolvedFilter = marketplace.filters.DeliveryResolved(null, null);
-    const deliveryResolvedListener = async (deliveryId: number, favorTraveler: boolean) => {
-      console.log("DeliveryResolved event received:", { deliveryId, favorTraveler });
-      await loadDeliveries();
-      await loadMyDeliveries();
-    };
-
-    // Subscribe to events
-    marketplace.on(deliveryCreatedFilter, deliveryCreatedListener);
-    marketplace.on(deliveryStatusFilter, deliveryStatusListener);
-    marketplace.on(deliveryDisputedFilter, deliveryDisputedListener);
-    marketplace.on(deliveryResolvedFilter, deliveryResolvedListener);
-
-    // Cleanup function to remove event listeners
-    return () => {
-      console.log("Cleaning up delivery event listeners...");
-      marketplace.removeListener(deliveryCreatedFilter, deliveryCreatedListener);
-      marketplace.removeListener(deliveryStatusFilter, deliveryStatusListener);
-      marketplace.removeListener(deliveryDisputedFilter, deliveryDisputedListener);
-      marketplace.removeListener(deliveryResolvedFilter, deliveryResolvedListener);
-    };
-  }, [provider, account, getMarketplaceContract, loadDeliveries, loadMyDeliveries]);
-
-  // Load user-specific data when wallet connects
-  useEffect(() => {
-    let isMounted = true;
-
-    const loadUserData = async () => {
-      if (!provider || !account || !isMounted) {
-        console.log("loadUserData: Skipped due to missing provider, account, or unmounted");
-        return;
-      }
-
-      try {
-        console.log("Loading user data...");
-        setIsLoading(true);
-        
-        // Load both user routes and deliveries in parallel
-        await Promise.all([
-          loadMyRoutes(),
-          loadMyDeliveries()
-        ]);
-        
-        console.log("User data loaded successfully");
-      } catch (error: any) {
-        console.error("Error loading user data:", error);
-        setError(`Failed to load user data: ${error.message || "Unknown error"}`);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    loadUserData();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [provider, account, loadMyRoutes, loadMyDeliveries]);
+  }, [provider, account]);
 
   // Context value
   const contextValue = useMemo(
