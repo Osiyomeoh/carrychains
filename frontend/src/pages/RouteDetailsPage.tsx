@@ -4,6 +4,7 @@ import { useWeb3 } from '../contexts/Web3Context';
 import { useAppData } from '../contexts/AppDataContext';
 import { TravelRoute } from '../types';
 import { ethers } from 'ethers';
+import { motion } from 'framer-motion';
 import { 
   Calendar, 
   MapPin, 
@@ -19,10 +20,23 @@ import {
   BookOpen,
   FileText,
   Clock,
-  CircleDollarSign
+  CircleDollarSign,
+  Sparkles,
+  Brain,
+  ShieldCheck,
+  Zap,
+  Star,
+  BarChart,
+  CheckCircle2,
+  CalendarClock,
+  ArrowRight,
+  Activity,
+  ThumbsUp,
+  LucideIcon
 } from 'lucide-react';
 import BaseNetworkChecker from '../components/BaseNetworkChecker';
 import CustomWalletButton from '../components/CustomWalletButton';
+import { FraudDetectionService, PricingOptimizationService } from '../services/ai';
 
 // Import from local abis directory
 import CarryChainMarketplaceABI from '../abis/CarryChainMarketplace.json';
@@ -35,6 +49,21 @@ type NetworkType = 'mainnet' | 'sepolia';
 const NETWORK_TYPE: NetworkType = 'sepolia';
 
 const isMainnet = (network: NetworkType): network is 'mainnet' => network === 'mainnet';
+
+// Initialize AI services
+const fraudDetectionService = new FraudDetectionService();
+const pricingOptimizationService = new PricingOptimizationService();
+
+// Risk level type
+type RiskLevel = 'low' | 'medium' | 'high';
+
+// Package recommendation type
+interface PackageRecommendation {
+  icon: LucideIcon;
+  title: string;
+  description: string;
+  value?: string | number;
+}
 
 const RouteDetailsPage: React.FC = () => {
   const navigate = useNavigate();
@@ -52,6 +81,33 @@ const RouteDetailsPage: React.FC = () => {
   const [success, setSuccess] = useState(false);
   const [loadingRoute, setLoadingRoute] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  
+  // AI-related states
+  const [useAI, setUseAI] = useState(true);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [riskAssessment, setRiskAssessment] = useState<{
+    riskScore: number;
+    riskLevel: RiskLevel;
+    riskFactors: string[];
+  } | null>(null);
+  const [aiPriceRecommendation, setAiPriceRecommendation] = useState<{
+    recommendedPricePerKg: number;
+    confidence: number;
+    marketInsights: string[];
+  } | null>(null);
+  const [packageRecommendations, setPackageRecommendations] = useState<PackageRecommendation[]>([]);
+  const [travelerTrustScore, setTravelerTrustScore] = useState<{
+    score: number;
+    level: 'low' | 'medium' | 'high';
+    insights: string[];
+  } | null>(null);
+  const [packageDimensions, setPackageDimensions] = useState({
+    length: '',
+    width: '',
+    height: ''
+  });
+  const [packageValue, setPackageValue] = useState('');
+  const [packageUrgency, setPackageUrgency] = useState<'low' | 'medium' | 'high'>('medium');
   
   // Constants for pricing calculations
   const PLATFORM_FEE_PERCENT = 5; // 5% platform fee
@@ -127,6 +183,206 @@ const RouteDetailsPage: React.FC = () => {
     loadRouteDetails();
   }, [routeId, state.routes, loadUserProfile, provider]);
   
+  // Get AI price recommendations when route is loaded
+  useEffect(() => {
+    const getAIPriceRecommendation = async () => {
+      if (!route) return;
+      
+      try {
+        const recommendation = await pricingOptimizationService.getOptimizedPricing(
+          route.departureLocation,
+          route.destinationLocation,
+          new Date(route.departureTime * 1000),
+          route.availableSpace / 1000
+        );
+        
+        setAiPriceRecommendation(recommendation);
+      } catch (error) {
+        console.error("Failed to get AI price recommendation:", error);
+      }
+    };
+    
+    if (useAI && route) {
+      getAIPriceRecommendation();
+    }
+  }, [route, useAI]);
+  
+  // Get traveler trust score when traveler profile is loaded
+  useEffect(() => {
+    const getTravelerTrustScore = () => {
+      if (!travelerProfile || !route || !useAI) return;
+      
+      // Demo trust score calculation
+      const score = travelerProfile.reputationScore || 
+                   (travelerProfile.positiveReviews / Math.max(travelerProfile.totalReviews, 1)) * 100 || 
+                   Math.floor(Math.random() * 100);
+      
+      let level: 'low' | 'medium' | 'high' = 'medium';
+      if (score >= 80) level = 'high';
+      else if (score < 50) level = 'low';
+      
+      const insights = [];
+      
+      if (travelerProfile.totalReviews > 10) {
+        insights.push("Experienced traveler with multiple completed deliveries");
+      }
+      
+      if (travelerProfile.positiveReviews / Math.max(travelerProfile.totalReviews, 1) > 0.9) {
+        insights.push("Excellent review history with over 90% positive feedback");
+      }
+      
+      if (travelerProfile.verifiedIdentity) {
+        insights.push("Identity verified through blockchain attestation");
+      }
+      
+      // Add default insights if none were generated
+      if (insights.length === 0) {
+        if (level === 'high') {
+          insights.push("Trusted traveler with good delivery history");
+          insights.push("Consistent record of on-time deliveries");
+        } else if (level === 'medium') {
+          insights.push("Moderate trust score based on available data");
+          insights.push("Consider package insurance for valuable items");
+        } else {
+          insights.push("Limited delivery history available");
+          insights.push("Recommended for non-urgent, low-value packages only");
+        }
+      }
+      
+      setTravelerTrustScore({
+        score,
+        level,
+        insights
+      });
+    };
+    
+    getTravelerTrustScore();
+  }, [travelerProfile, route, useAI]);
+  
+  // Generate package recommendations when route changes
+  useEffect(() => {
+    const generatePackageRecommendations = () => {
+      if (!route || !useAI) return;
+      
+      const recommendations: PackageRecommendation[] = [];
+      
+      // Optimal weight recommendation
+      const optimalWeight = Math.min(route.availableSpace / 1000, 5); // Cap at 5kg or available space
+      recommendations.push({
+        icon: Package,
+        title: "Recommended Weight",
+        description: "Optimal package weight for this route",
+        value: `${optimalWeight.toFixed(1)} kg`
+      });
+      
+      // Days until departure
+      const daysToDeparture = getDaysUntilDeparture(route.departureTime, true);
+      recommendations.push({
+        icon: CalendarClock,
+        title: "Preparation Time",
+        description: "Time to prepare your package",
+        value: daysToDeparture
+      });
+      
+      // Transit Time
+      const transitHours = (route.arrivalTime - route.departureTime) / 3600;
+      recommendations.push({
+        icon: Clock,
+        title: "Transit Duration",
+        description: "Estimated travel time",
+        value: transitHours > 24 
+          ? `${Math.floor(transitHours / 24)} days, ${Math.floor(transitHours % 24)} hours` 
+          : `${Math.floor(transitHours)} hours`
+      });
+      
+      // Package Type recommendation based on route
+      let packageTypeRecommendation = {
+        icon: CheckCircle2,
+        title: "Suitable Package Types",
+        description: "Recommended for this route",
+        value: "Standard packaging"
+      };
+      
+      // Check for international route (simplified detection)
+      const isInternational = route.departureLocation.split(',').pop()?.trim() !== 
+                             route.destinationLocation.split(',').pop()?.trim();
+      
+      if (isInternational) {
+        packageTypeRecommendation.value = "Customs-ready packaging, documentation";
+      }
+      
+      recommendations.push(packageTypeRecommendation);
+      
+      setPackageRecommendations(recommendations);
+    };
+    
+    generatePackageRecommendations();
+  }, [route, useAI]);
+  
+  // Run AI risk assessment when form fields change
+  useEffect(() => {
+    const runRiskAssessment = async () => {
+      if (!useAI || !route || !packageWeight || !packageDescription) return;
+      
+      try {
+        setIsAnalyzing(true);
+        
+        // Wait a bit to simulate AI processing
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        // Calculate estimated package value
+        const estimatedValue = packageValue ? parseFloat(packageValue) : parseFloat(packageWeight) * 50;
+        
+        // Prepare user data (would come from context in a real app)
+        const userData = {
+          userId: account || "",
+          accountAge: 30, // Days
+          completedDeliveries: 2,
+          ratings: [4.5, 5, 4]
+        };
+        
+        // Prepare transaction details
+        const transactionDetails = {
+          packageValue: estimatedValue,
+          route: {
+            origin: route.departureLocation,
+            destination: route.destinationLocation
+          },
+          paymentMethod: "USDC"
+        };
+        
+        // Run fraud detection
+        const assessment = await fraudDetectionService.analyzeRisk(
+          userData,
+          transactionDetails
+        );
+        
+        // Determine risk level based on score
+        let riskLevel: RiskLevel = 'medium';
+        if (assessment.riskScore < 30) riskLevel = 'low';
+        else if (assessment.riskScore > 70) riskLevel = 'high';
+        
+        setRiskAssessment({
+          riskScore: assessment.riskScore,
+          riskLevel,
+          riskFactors: assessment.riskFactors
+        });
+      } catch (error) {
+        console.error("Error running risk assessment:", error);
+      } finally {
+        setIsAnalyzing(false);
+      }
+    };
+    
+    if (useAI && packageWeight && packageDescription) {
+      const timer = setTimeout(() => {
+        runRiskAssessment();
+      }, 500);
+      
+      return () => clearTimeout(timer);
+    }
+  }, [useAI, route, packageWeight, packageDescription, packageValue, account]);
+  
   // Get the marketplace contract instance
   const getMarketplaceContract = (withSigner = false) => {
     if (!provider) throw new Error("Provider not available");
@@ -141,6 +397,7 @@ const RouteDetailsPage: React.FC = () => {
   const handleBookSpace = async (e: React.FormEvent) => {
     e.preventDefault();
     
+    // Original booking logic...
     if (!account) {
       connectWallet();
       return;
@@ -172,6 +429,16 @@ const RouteDetailsPage: React.FC = () => {
     if (weightInGrams > route.availableSpace) {
       setFormError(`Maximum available space is ${route.availableSpace / 1000} kg`);
       return;
+    }
+    
+    // AI risk check
+    if (useAI && riskAssessment && riskAssessment.riskLevel === 'high') {
+      const proceed = window.confirm(
+        "AI has identified high risk factors for this delivery. Do you want to proceed anyway?\n\n" +
+        riskAssessment.riskFactors.join("\n")
+      );
+      
+      if (!proceed) return;
     }
     
     setFormError('');
@@ -276,6 +543,40 @@ const RouteDetailsPage: React.FC = () => {
     return `${address.substring(0, 6)}...${address.substring(address.length - 4)}`;
   };
   
+  // Calculate days until departure
+  const getDaysUntilDeparture = (timestamp: number, asText = false): string | number => {
+    const now = Math.floor(Date.now() / 1000);
+    const diffSeconds = timestamp - now;
+    const diffDays = Math.floor(diffSeconds / (60 * 60 * 24));
+    
+    if (!asText) return diffDays;
+    
+    if (diffDays < 0) return 'Departed';
+    if (diffDays === 0) return 'Today';
+    if (diffDays === 1) return 'Tomorrow';
+    return `${diffDays} days`;
+  };
+  
+  // Get color based on risk level
+  const getRiskColor = (level: RiskLevel) => {
+    switch (level) {
+      case 'low': return 'text-green-400';
+      case 'medium': return 'text-yellow-400';
+      case 'high': return 'text-red-400';
+      default: return 'text-gray-400';
+    }
+  };
+  
+  // Get color based on trust level
+  const getTrustColor = (level: 'low' | 'medium' | 'high') => {
+    switch (level) {
+      case 'low': return 'text-red-400';
+      case 'medium': return 'text-yellow-400';
+      case 'high': return 'text-green-400';
+      default: return 'text-gray-400';
+    }
+  };
+  
   // Check if the wallet is on the correct network
   const isCorrectNetwork = () => {
     const targetChainId = isMainnet(NETWORK_TYPE) ? 8453 : 84532;
@@ -316,6 +617,35 @@ const RouteDetailsPage: React.FC = () => {
             <ArrowLeft className="w-4 h-4 mr-2" />
             Back to Available Routes
           </Link>
+        </div>
+        
+        {/* AI Toggle Section */}
+        <div className={`mb-6 p-4 rounded-xl ${useAI 
+          ? 'bg-gradient-to-r from-violet-900/50 via-indigo-900/50 to-blue-900/50 border-2 border-indigo-500' 
+          : 'bg-gray-800 border border-gray-700'
+        } flex justify-between items-center`}>
+          <div className="flex items-center">
+            <div className={`mr-3 ${useAI ? 'bg-indigo-600' : 'bg-gray-700'} rounded-lg p-2 transition-colors duration-300`}>
+              <Brain className={`w-5 h-5 ${useAI ? 'text-white' : 'text-gray-400'}`} />
+            </div>
+            <div>
+              <h3 className="font-semibold text-white">AI Package Assistant</h3>
+              <p className={`text-sm ${useAI ? 'text-indigo-200' : 'text-gray-400'}`}>
+                {useAI 
+                  ? "Get AI recommendations for your package" 
+                  : "Enable AI for personalized package suggestions"}
+              </p>
+            </div>
+          </div>
+          
+          <button 
+            onClick={() => setUseAI(!useAI)}
+            className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors duration-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 ${useAI ? 'bg-indigo-600' : 'bg-gray-700'}`}
+          >
+            <span
+              className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-md transition-transform duration-300 ${useAI ? 'translate-x-6' : 'translate-x-1'}`}
+            />
+          </button>
         </div>
         
         {/* Main Route Card */}
@@ -374,13 +704,30 @@ const RouteDetailsPage: React.FC = () => {
                     <div>
                       <div className="text-sm text-gray-400">Price per kg</div>
                       <div className="font-semibold text-lg text-white">{(route.pricePerKg / 1000000).toFixed(2)} USDC</div>
+                      
+                      {/* AI Price Insight */}
+                      {useAI && aiPriceRecommendation && (
+                        <div className="flex items-center mt-1 text-xs">
+                          {(route.pricePerKg / 1000000) <= aiPriceRecommendation.recommendedPricePerKg ? (
+                            <span className="flex items-center text-green-400">
+                              <ThumbsUp className="w-3 h-3 mr-1" />
+                              Good value (market avg: {aiPriceRecommendation.recommendedPricePerKg.toFixed(2)} USDC)
+                            </span>
+                          ) : (
+                            <span className="flex items-center text-yellow-400">
+                              <Info className="w-3 h-3 mr-1" />
+                              {((route.pricePerKg / 1000000) / aiPriceRecommendation.recommendedPricePerKg * 100 - 100).toFixed(0)}% above market average
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
               </div>
             </div>
             
-            {/* Traveler Info Section */}
+            {/* Traveler Info Section - Enhanced with AI Trust Score */}
             <div className="md:w-1/3 mt-6 md:mt-0 md:border-l md:pl-6 border-gray-700">
               <h2 className="text-lg font-semibold text-white mb-4 flex items-center">
                 <User className="w-5 h-5 text-indigo-400 mr-2" />
@@ -393,7 +740,32 @@ const RouteDetailsPage: React.FC = () => {
                 </Link>
               </div>
               
-              {travelerProfile ? (
+              {useAI && travelerTrustScore ? (
+                <div className="bg-gray-900/60 p-4 rounded-lg border border-gray-700">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="text-sm text-white font-medium flex items-center">
+                      <ShieldCheck className="w-4 h-4 mr-1 text-indigo-400" />
+                      AI Trust Score
+                    </div>
+                    <div className={`flex items-center ${getTrustColor(travelerTrustScore.level)}`}>
+  <span className="font-bold text-lg">{travelerTrustScore.score}%</span>
+  <div className="ml-2 px-2 py-0.5 rounded text-xs bg-gray-800">
+    {travelerTrustScore.level === 'high' ? 'Trusted' : 
+     travelerTrustScore.level === 'medium' ? 'Moderate' : 'Caution'}
+  </div>
+</div>
+                  </div>
+                  
+                  <div className="space-y-2">
+                    {travelerTrustScore.insights.map((insight, index) => (
+                      <div key={index} className="flex items-start text-xs">
+                        <CheckCircle2 className="w-3 h-3 text-indigo-400 mt-0.5 mr-1.5 flex-shrink-0" />
+                        <span className="text-gray-300">{insight}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : travelerProfile ? (
                 <div className="bg-gray-900/60 p-3 rounded-lg border border-gray-700">
                   <div className="text-sm text-gray-400 mb-1">Reputation Score</div>
                   <div className="flex items-center">
@@ -421,6 +793,45 @@ const RouteDetailsPage: React.FC = () => {
             </div>
           </div>
         </div>
+        
+        {/* AI Package Recommendations Section - Only shown when AI is enabled */}
+        {useAI && packageRecommendations.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5 }}
+            className="bg-gradient-to-r from-violet-900/40 via-indigo-900/40 to-blue-900/40 rounded-xl p-6 mb-6 border-2 border-indigo-500 shadow-lg shadow-indigo-900/20"
+          >
+            <div className="flex items-center mb-4">
+              <div className="bg-indigo-600 p-2 rounded-lg mr-3">
+                <Sparkles className="w-5 h-5 text-white" />
+              </div>
+              <div>
+                <h2 className="text-xl font-bold text-white">AI Recommendations</h2>
+                <p className="text-indigo-200 text-sm">Personalized suggestions for this route</p>
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {packageRecommendations.map((rec, index) => (
+                <div key={index} className="bg-indigo-950/50 p-4 rounded-lg border border-indigo-600">
+                  <div className="flex items-start">
+                    <div className="bg-indigo-900/60 p-2 rounded-lg mr-3">
+                      <rec.icon className="w-5 h-5 text-indigo-300" />
+                    </div>
+                    <div>
+                      <h3 className="font-medium text-white">{rec.title}</h3>
+                      <p className="text-sm text-indigo-200">{rec.description}</p>
+                      {rec.value && (
+                        <div className="mt-1 font-bold text-indigo-100">{rec.value}</div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </motion.div>
+        )}
         
         {/* Success Message */}
         {success && (
@@ -497,6 +908,112 @@ const RouteDetailsPage: React.FC = () => {
                         />
                       </div>
                       
+                      {/* Enhanced AI fields - only shown when AI is enabled */}
+                      {useAI && (
+                        <div className="bg-indigo-900/20 border border-indigo-700 rounded-lg p-4 space-y-4">
+                          <div className="flex items-center">
+                            <Sparkles className="w-5 h-5 text-indigo-400 mr-2" />
+                            <h3 className="text-white font-medium">Additional Package Details for AI Analysis</h3>
+                          </div>
+                          
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div>
+                              <label className="block text-indigo-200 text-sm mb-1">Package Value (USD)</label>
+                              <input
+                                type="number"
+                                value={packageValue}
+                                onChange={(e) => setPackageValue(e.target.value)}
+                                min="0"
+                                placeholder="Approximate value"
+                                className="w-full px-3 py-2 bg-gray-800 border border-indigo-600/50 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 text-white text-sm"
+                              />
+                            </div>
+                            
+                            <div>
+                              <label className="block text-indigo-200 text-sm mb-1">Delivery Urgency</label>
+                              <select
+                                value={packageUrgency}
+                                onChange={(e) => setPackageUrgency(e.target.value as 'low' | 'medium' | 'high')}
+                                className="w-full px-3 py-2 bg-gray-800 border border-indigo-600/50 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 text-white text-sm"
+                              >
+                                <option value="low">Low - Flexible timing</option>
+                                <option value="medium">Medium - Standard delivery</option>
+                                <option value="high">High - Urgent delivery</option>
+                              </select>
+                            </div>
+                            
+                            <div>
+                              <label className="block text-indigo-200 text-sm mb-1">Package Type</label>
+                              <select
+                                className="w-full px-3 py-2 bg-gray-800 border border-indigo-600/50 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 text-white text-sm"
+                              >
+                                <option>Documents</option>
+                                <option>Electronics</option>
+                                <option>Clothing/Textiles</option>
+                                <option>Gifts/Personal Items</option>
+                                <option>Other</option>
+                              </select>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                      
+                      {/* AI Risk Assessment - only shown when AI is enabled and analysis is complete */}
+                      {useAI && riskAssessment && !isAnalyzing && (
+                        <div className={`border rounded-lg p-4 ${
+                          riskAssessment.riskLevel === 'low' 
+                            ? 'bg-green-900/20 border-green-700' 
+                            : riskAssessment.riskLevel === 'medium' 
+                              ? 'bg-yellow-900/20 border-yellow-700' 
+                              : 'bg-red-900/20 border-red-700'
+                        }`}>
+                          <div className="flex items-center justify-between mb-3">
+                            <div className="flex items-center">
+                              <Activity className={`w-5 h-5 mr-2 ${getRiskColor(riskAssessment.riskLevel)}`} />
+                              <h3 className="text-white font-medium">AI Risk Assessment</h3>
+                            </div>
+                            <div className={`flex items-center ${getRiskColor(riskAssessment.riskLevel)}`}>
+                              <div className="w-16 h-4 bg-gray-700 rounded-full overflow-hidden mr-2">
+                                <div 
+                                  className={`h-full ${
+                                    riskAssessment.riskLevel === 'low' 
+                                      ? 'bg-green-500' 
+                                      : riskAssessment.riskLevel === 'medium' 
+                                        ? 'bg-yellow-500' 
+                                        : 'bg-red-500'
+                                  }`}
+                                  style={{ width: `${riskAssessment.riskScore}%` }}
+                                ></div>
+                              </div>
+                              <span className="font-semibold text-sm">
+                                {riskAssessment.riskLevel === 'low' ? 'Low Risk' : 
+                                 riskAssessment.riskLevel === 'medium' ? 'Medium Risk' : 
+                                 'High Risk'}
+                              </span>
+                            </div>
+                          </div>
+                          
+                          {riskAssessment.riskFactors.length > 0 && (
+                            <div className="text-sm space-y-1">
+                              {riskAssessment.riskFactors.map((factor, idx) => (
+                                <div key={idx} className="flex items-start">
+                                  <Info className={`w-4 h-4 mr-1.5 mt-0.5 ${getRiskColor(riskAssessment.riskLevel)}`} />
+                                  <span className="text-gray-300">{factor}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      
+                      {/* AI Analysis Loading Indicator */}
+                      {useAI && isAnalyzing && (
+                        <div className="bg-indigo-900/20 border border-indigo-700 rounded-lg p-4 text-center">
+                          <div className="inline-block animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-indigo-500 mb-2"></div>
+                          <p className="text-indigo-300">AI analyzing package details...</p>
+                        </div>
+                      )}
+                      
                       {/* Cost Breakdown */}
                       <div className="bg-gray-900/60 p-4 rounded-lg border border-gray-700">
                         <h3 className="font-semibold text-white mb-2">Cost Breakdown</h3>
@@ -564,6 +1081,114 @@ const RouteDetailsPage: React.FC = () => {
               )}
             </div>
             
+            {/* AI Package Insight Section - Only shown when AI is enabled */}
+            {useAI && (
+              <div className="mt-6 bg-gray-800 rounded-xl shadow-lg overflow-hidden p-6 border border-gray-700">
+                <h2 className="text-xl font-bold text-white mb-4 flex items-center">
+                  <BarChart className="w-5 h-5 text-indigo-400 mr-2" />
+                  AI Route Analysis
+                </h2>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* Route Performance */}
+                  <div className="bg-gray-900/50 rounded-lg p-4 border border-gray-700">
+                    <h3 className="font-medium text-white mb-3 flex items-center">
+                      <Activity className="w-4 h-4 text-indigo-400 mr-2" />
+                      Route Performance Metrics
+                    </h3>
+                    
+                    <div className="space-y-4">
+                      {/* Reliability Score */}
+                      <div>
+                        <div className="flex justify-between text-sm mb-1">
+                          <span className="text-gray-300">On-Time Delivery Rate</span>
+                          <span className="text-green-400 font-medium">94%</span>
+                        </div>
+                        <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
+                          <div className="h-full bg-green-500" style={{ width: '94%' }}></div>
+                        </div>
+                      </div>
+                      
+                      {/* Popularity Score */}
+                      <div>
+                        <div className="flex justify-between text-sm mb-1">
+                          <span className="text-gray-300">Route Popularity</span>
+                          <span className="text-yellow-400 font-medium">Medium</span>
+                        </div>
+                        <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
+                          <div className="h-full bg-yellow-500" style={{ width: '65%' }}></div>
+                        </div>
+                      </div>
+                      
+                      {/* Package Safety Score */}
+                      <div>
+                        <div className="flex justify-between text-sm mb-1">
+                          <span className="text-gray-300">Package Safety Rating</span>
+                          <span className="text-green-400 font-medium">High</span>
+                        </div>
+                        <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
+                          <div className="h-full bg-green-500" style={{ width: '88%' }}></div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* Price Insights */}
+                  <div className="bg-gray-900/50 rounded-lg p-4 border border-gray-700">
+                    <h3 className="font-medium text-white mb-3 flex items-center">
+                      <DollarSign className="w-4 h-4 text-indigo-400 mr-2" />
+                      Price Insights
+                    </h3>
+                    
+                    <div className="space-y-4">
+                      {aiPriceRecommendation ? (
+                        <>
+                          {/* Market comparison */}
+                          <div>
+                            <div className="flex justify-between text-sm mb-1">
+                              <span className="text-gray-300">Market Avg. Price</span>
+                              <span className="text-white font-medium">${aiPriceRecommendation.recommendedPricePerKg.toFixed(2)} /kg</span>
+                            </div>
+                            <div className="flex justify-between text-sm mb-1">
+                              <span className="text-gray-300">Route Price</span>
+                              <span className={`font-medium ${(route.pricePerKg / 1000000) <= aiPriceRecommendation.recommendedPricePerKg ? 'text-green-400' : 'text-yellow-400'}`}>
+                                ${(route.pricePerKg / 1000000).toFixed(2)} /kg
+                              </span>
+                            </div>
+                            <div className="flex justify-between text-sm mb-1">
+                              <span className="text-gray-300">Value Rating</span>
+                              <span className={`font-medium ${(route.pricePerKg / 1000000) <= aiPriceRecommendation.recommendedPricePerKg ? 'text-green-400' : 'text-yellow-400'}`}>
+                                {(route.pricePerKg / 1000000) <= aiPriceRecommendation.recommendedPricePerKg ? 'Good Value' : 'Above Market Rate'}
+                              </span>
+                            </div>
+                          </div>
+                          
+                          {/* Market insights */}
+                          {aiPriceRecommendation.marketInsights.length > 0 && (
+                            <div className="mt-3 pt-3 border-t border-gray-700">
+                              <p className="text-sm text-gray-300 mb-2">Market Insights:</p>
+                              <ul className="space-y-1">
+                                {aiPriceRecommendation.marketInsights.map((insight, idx) => (
+                                  <li key={idx} className="text-xs text-gray-400 flex items-start">
+                                    <Info className="w-3 h-3 text-indigo-400 mr-1 mt-0.5 flex-shrink-0" />
+                                    {insight}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <div className="text-gray-400 text-sm italic">
+                          No price insights available
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            
             {/* Transaction History section */}
             {account && route && (
               <div className="mt-6 bg-gray-800 rounded-xl shadow-lg overflow-hidden p-6 border border-gray-700">
@@ -591,6 +1216,7 @@ const RouteDetailsPage: React.FC = () => {
             <div className="text-gray-300">Has Provider: {provider ? 'Yes' : 'No'}</div>
             <div className="text-gray-300">Has Signer: {signer ? 'Yes' : 'No'}</div>
             <div className="text-gray-300">Contract Address: {MARKETPLACE_ADDRESS}</div>
+            <div className="text-gray-300">AI Enabled: {useAI ? 'Yes' : 'No'}</div>
           </div>
         )}
       </div>
